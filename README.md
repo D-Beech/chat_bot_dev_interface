@@ -1,2 +1,1 @@
-# chat_bot_dev_interface
-Simple Flask project with Dynamic Javascript chatbot interface to test streaming APIs from my backend project
+This is a development only interface. The production app will use a flutter front end.
