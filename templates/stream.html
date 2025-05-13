@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chatbot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <style>
+    body { background: #f8f9fa; }
+    .chat-box {
+      max-height: 70vh;
+      overflow-y: auto;
+      padding: 1rem;
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 0.5rem;
+    }
+    .message { margin-bottom: 1rem; }
+    .user-msg { text-align: right; }
+    .bot-msg { text-align: left; }
+    .message p {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      max-width: 70%;
+    }
+    .user-msg p { background-color: #007bff; color: white; }
+    .bot-msg p { background-color: #e9ecef; }
+  </style>
+</head>
+<body>
+  <div class="container py-5">
+    <h2 class="mb-4 text-center">Chat with Bot</h2>
+    <div class="chat-box mb-3" id="chat-box"></div>
+    <form id="chat-form" class="form-inline">
+      <input type="text" class="form-control flex-fill mr-2" id="user-input" placeholder="Type a message" required>
+      <button type="submit" class="btn btn-primary">Send</button>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('chat-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const input = document.getElementById('user-input');
+      const message = input.value.trim();
+      if (!message) return;
+
+      const chatBox = document.getElementById('chat-box');
+
+      // Add user message
+      chatBox.innerHTML += `<div class="message user-msg"><p>${message}</p></div>`;
+      input.value = '';
+
+      // Add empty bot message
+      const botMsg = document.createElement('div');
+      botMsg.className = 'message bot-msg';
+      const botPara = document.createElement('p');
+      botMsg.appendChild(botPara);
+      chatBox.appendChild(botMsg);
+
+      // Stream from Flask
+      fetch('http://127.0.0.1:5001/stream_chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+  "message": null,
+  "context": [
+    { "role": "user", "content": "Hi, I'm trying to learn about biology, tell me what a zebra is." },
+    { "role": "assistant", "content": "Sure! What topic are you interested in?" }
+  ],
+  "displayName": "Alex",
+  "token_length": 1,
+  "vocab_complexity": 0,
+  "tone": 0
+})
+      }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        function read() {
+          reader.read().then(({ done, value }) => {
+            if (done) return;
+            botPara.innerText += decoder.decode(value, { stream: true });
+            chatBox.scrollTop = chatBox.scrollHeight;
+            read();
+          });
+        }
+        read();
+      }).catch(err => {
+        console.error(err);
+        botPara.innerText = '[Error streaming response]';
+      });
+    });
+  </script>
+</body>
+</html>
+
