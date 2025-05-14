@@ -2,90 +2,86 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Chatbot</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Bootstrap 4 CDN -->
-  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-  <style>
-    body {
-      background: #f8f9fa;
-    }
-    .chat-box {
-      max-height: 70vh;
-      overflow-y: auto;
-      padding: 1rem;
-      background: #ffffff;
-      border: 1px solid #dee2e6;
-      border-radius: 0.5rem;
-    }
-    .message {
-      margin-bottom: 1rem;
-    }
-    .user-msg {
-      text-align: right;
-    }
-    .bot-msg {
-      text-align: left;
-    }
-    .message p {
-      display: inline-block;
-      padding: 0.5rem 1rem;
-      border-radius: 20px;
-      max-width: 70%;
-    }
-    .user-msg p {
-      background-color: #007bff;
-      color: white;
-    }
-    .bot-msg p {
-      background-color: #e9ecef;
-    }
-  </style>
+  <title>S3 Upload Test (POST)</title>
 </head>
 <body>
-  <div class="container py-5">
-    <h2 class="mb-4 text-center">Chat with Bot</h2>
-    <div class="chat-box mb-3" id="chat-box">
-      <!-- Chat messages appear here -->
-    </div>
-    <form id="chat-form" class="form-inline">
-      <input type="text" class="form-control flex-fill mr-2" id="user-input" placeholder="Type a message" required>
-      <button type="submit" class="btn btn-primary">Send</button>
-    </form>
-  </div>
+  <h2>Upload File to S3 via Signed URL (PUT)</h2>
+  <input type="file" id="fileInput">
+  <button onclick="uploadFile()">Upload</button>
+  <p id="status"></p>
 
-  <!-- jQuery and Bootstrap JS -->
-  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
   <script>
-    $('#chat-form').on('submit', function(e) {
-      e.preventDefault();
-      const input = $('#user-input');
-      const message = input.val().trim();
-      if (!message) return;
+    async function uploadFile() {
+      const fileInput = document.getElementById('fileInput');
+      const file = fileInput.files[0];
+      const status = document.getElementById('status');
 
-      // Add user message
-      $('#chat-box').append(`<div class="message user-msg"><p>${message}</p></div>`);
-      input.val('');
-      $('#chat-box').scrollTop($('#chat-box')[0].scrollHeight);
+      if (!file) {
+        status.textContent = "Please select a file.";
+        return;
+      }
 
-      // Send message as JSON
-      $.ajax({
-        url: 'http://127.0.0.1:5001/message',
-        method: 'POST',
-        contentType: 'application/json',
-        dataType: 'json',
-        data: JSON.stringify({ message: message }),
-        success: function(data) {
-          $('#chat-box').append(`<div class="message bot-msg"><p>${data.message}</p></div>`);
-          $('#chat-box').scrollTop($('#chat-box')[0].scrollHeight);
-        },
-        error: function(xhr, status, error) {
-          console.error('Error:', error);
-          $('#chat-box').append(`<div class="message bot-msg"><p><em>Error talking to bot.</em></p></div>`);
-          $('#chat-box').scrollTop($('#chat-box')[0].scrollHeight);
+      const contentType = file.type || 'application/octet-stream';
+
+      try {
+        // Step 1: Get signed upload URL from Flask
+        const response = await fetch('http://127.0.0.1:5001/generate-upload-url', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            filename: file.name,
+            content_type: contentType
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.upload_url) {
+          status.textContent = "Failed to get upload URL.";
+          console.error(data);
+          return;
         }
-      });
-    });
+
+        // Step 2: Upload file directly to S3 using signed URL
+        const upload = await fetch(data.upload_url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': contentType
+          },
+          body: file
+        });
+
+        if (upload.ok) {
+          status.textContent = "Upload successful!";
+          // Step 3: Notify Flask to summarize the uploaded document
+          const summaryRes = await fetch('http://127.0.0.1:5001/process-docx', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ file_key : file.name })
+          });
+
+          const summaryData = await summaryRes.json();
+
+          if (summaryRes.ok) {
+            status.textContent += "\nSummary: " + summaryData.summary;
+          } else {
+            status.textContent += "\nUpload succeeded, but summarization failed.";
+            console.error(summaryData);
+          }
+          
+        } else {
+          status.textContent = "Upload failed.";
+          console.error(await upload.text());
+        }
+      } catch (error) {
+        console.error(error);
+        status.textContent = "An error occurred.";
+      }
+    }
   </script>
 </body>
 </html>

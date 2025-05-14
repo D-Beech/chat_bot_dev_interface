@@ -8,6 +8,10 @@ CORS(app)
 def home():
     return render_template("stream.html")
 
+@app.route("/2")
+def two():
+    return render_template("index.html")
+
 @app.route("/chat", methods=['POST'])
 def chat():
     input = request.json.get("message")
