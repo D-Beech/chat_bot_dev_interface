@@ -1,85 +1,294 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>S3 Upload Test (POST)</title>
+  <meta charset="UTF-8" />
+  <title>JuanBot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #121212;
+      color: #e0e0e0;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .chat-box {
+      background-color: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 1rem;
+      height: 70vh;
+      overflow-y: auto;
+      margin-bottom: 1rem;
+      scrollbar-width: none;
+    }
+
+    .chat-box::-webkit-scrollbar {
+      display: none;
+    }
+
+    .message {
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      animation: fadeIn 0.4s ease forwards;
+    }
+
+    @keyframes fadeIn {
+      to {
+        opacity: 1;
+      }
+    }
+
+    .user-msg p {
+      align-self: flex-end;
+      background-color: #3b82f6;
+      color: white;
+      padding: 0.6rem 1rem;
+      border-radius: 20px;
+      max-width: 75%;
+      animation: pulse 1s ease-in-out;
+    }
+
+    .bot-msg p {
+      align-self: flex-start;
+      background-color: #2c2c2c;
+      color: #e0e0e0;
+      padding: 0.6rem 1rem;
+      border-radius: 20px;
+      max-width: 75%;
+      animation: pulse 1s ease-in-out;
+    }
+
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+      }
+    }
+
+    form, .upload-form {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      padding: 0.8rem;
+      border-radius: 8px;
+      border: none;
+      background-color: #2a2a2a;
+      color: white;
+    }
+
+    input::placeholder {
+      color: #888;
+    }
+
+    button {
+      padding: 0.8rem 1.5rem;
+      border-radius: 8px;
+      border: none;
+      background-color: #3b82f6;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #2563eb;
+    }
+
+    input[type="file"] {
+      color: white;
+    }
+
+    .jiggle {
+      display: inline-block;
+      animation: jiggle 1s infinite ease-in-out;
+      transform-origin: center;
+    }
+
+    @keyframes jiggle {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(10deg); }
+      50% { transform: rotate(-10deg); }
+      75% { transform: rotate(5deg); }
+    }
+  </style>
 </head>
 <body>
-  <h2>Upload File to S3 via Signed URL (PUT)</h2>
-  <input type="file" id="fileInput">
-  <button onclick="uploadFile()">Upload</button>
-  <p id="status"></p>
+  <div class="container">
+    <h2><span class="jiggle">🤖</span> JuanBot</h2>
+    <div class="chat-box" id="chat-box"></div>
+
+    <form id="chat-form">
+      <input type="text" id="user-input" placeholder="Type a message..." autocomplete="off" required />
+      <button type="submit">Send</button>
+    </form>
+
+    <div class="upload-form">
+      <input type="file" id="fileInput" />
+      <button onclick="uploadFile()">Upload File</button>
+    </div>
+  </div>
 
   <script>
+    const chatBox = document.getElementById('chat-box');
+    const input = document.getElementById('user-input');
+    const form = document.getElementById('chat-form');
+    const chatHistory = [];
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+
+      addMessage('user', message);
+      chatHistory.push({ role: "user", content: message });
+
+      const botMsg = createBotMessage();
+      input.value = '';
+
+      fetch('http://127.0.0.1:5001/stream_chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: message,
+          context: chatHistory.slice(-20),
+          displayName: "Alex",
+          token_length: 1,
+          vocab_complexity: 0,
+          tone: 0
+        })
+      }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        function read() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              chatHistory.push({ role: "assistant", content: botMsg.querySelector('p').innerText });
+              return;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+
+            for (const part of parts) {
+              if (part.startsWith('data:')) {
+                try {
+                  const jsonStr = part.replace(/^data:\s*/, '');
+                  const parsed = JSON.parse(jsonStr);
+                  const content = parsed.message?.content || '';
+                  botMsg.querySelector('p').innerText += content;
+                  chatBox.scrollTop = chatBox.scrollHeight;
+                } catch (err) {
+                  console.error('Parse error:', err);
+                }
+              }
+            }
+
+            read();
+          });
+        }
+
+        read();
+      }).catch(err => {
+        console.error(err);
+        botMsg.querySelector('p').innerText = '[Error streaming response]';
+        chatHistory.push({ role: "assistant", content: '[Error streaming response]' });
+      });
+    });
+
+    function addMessage(role, text) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `message ${role === 'user' ? 'user-msg' : 'bot-msg'}`;
+      msgDiv.innerHTML = `<p>${text}</p>`;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function createBotMessage() {
+      const botMsg = document.createElement('div');
+      botMsg.className = 'message bot-msg';
+      const botPara = document.createElement('p');
+      botMsg.appendChild(botPara);
+      chatBox.appendChild(botMsg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return botMsg;
+    }
+
     async function uploadFile() {
       const fileInput = document.getElementById('fileInput');
       const file = fileInput.files[0];
-      const status = document.getElementById('status');
-
       if (!file) {
-        status.textContent = "Please select a file.";
+        addMessage('bot', '📎 Please select a file to upload.');
         return;
       }
 
       const contentType = file.type || 'application/octet-stream';
 
       try {
-        // Step 1: Get signed upload URL from Flask
         const response = await fetch('http://127.0.0.1:5001/generate-upload-url', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            filename: file.name,
-            content_type: contentType
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, content_type: contentType })
         });
 
         const data = await response.json();
-
         if (!response.ok || !data.upload_url) {
-          status.textContent = "Failed to get upload URL.";
-          console.error(data);
+          addMessage('bot', '⚠️ Failed to get upload URL.');
           return;
         }
 
-        // Step 2: Upload file directly to S3 using signed URL
         const upload = await fetch(data.upload_url, {
           method: 'PUT',
-          headers: {
-            'Content-Type': contentType
-          },
+          headers: { 'Content-Type': contentType },
           body: file
         });
 
-        if (upload.ok) {
-          status.textContent = "Upload successful!";
-          // Step 3: Notify Flask to summarize the uploaded document
-          const summaryRes = await fetch('http://127.0.0.1:5001/process-docx', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ file_key : file.name })
-          });
+        if (!upload.ok) {
+          addMessage('bot', '❌ Upload failed.');
+          return;
+        }
 
-          const summaryData = await summaryRes.json();
+        addMessage('user', `📄 Uploaded file: ${file.name}`);
+        const botMsg = createBotMessage();
 
-          if (summaryRes.ok) {
-            status.textContent += "\nSummary: " + summaryData.summary;
-          } else {
-            status.textContent += "\nUpload succeeded, but summarization failed.";
-            console.error(summaryData);
-          }
-          
+        const summaryRes = await fetch('http://127.0.0.1:5001/process-docx', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_key: file.name })
+        });
+
+        const summaryData = await summaryRes.json();
+        if (summaryRes.ok) {
+          botMsg.querySelector('p').innerText = `📝 Summary of "${file.name}":\n${summaryData.summary}`;
         } else {
-          status.textContent = "Upload failed.";
-          console.error(await upload.text());
+          botMsg.querySelector('p').innerText = '📎 Upload succeeded, but summarization failed.';
         }
       } catch (error) {
         console.error(error);
-        status.textContent = "An error occurred.";
+        addMessage('bot', '❌ An error occurred during file upload.');
       }
     }
   </script>
