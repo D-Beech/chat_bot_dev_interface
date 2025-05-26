@@ -1,0 +1,5 @@
+{
+  "schema_version": "1.0",
+  "output_type": "string",
+  "validators": ["validators.no_pokemon"]
+}
